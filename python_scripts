@@ -1,0 +1,316 @@
+import argparse
+import json
+import sys
+#from datetime import datetimer
+from getpass import getuser
+import os
+
+def main():
+    argp = argparse.ArgumentParser()
+    argp.add_argument('--output', '-o', type = argparse.FileType('w'), default = '-')
+    argp.add_argument('input_file', type = str, default = '-', nargs = '*')
+    argp.add_argument('--myinfo', type = argparse.FileType('r'))
+    argp.add_argument('--event', '--event-id', '--id', type = str)
+    argp.add_argument('--name', type = str, default = "-unknown")
+    argp.add_argument('--my_var_version', type = str, default = "my_var_version")
+    argp.add_argument('--TotalTX_Gbps', type = float, default = None)
+    argp.add_argument('--time', type = str, default = datetime.utcnow().isoformat())
+    argp.add_argument('--resultonly', action = 'store_true')
+    argp.add_argument('--submitter-name', type = str, default = get_logname())
+    argp.add_argument('--submitter-email', type = str, default = '{}@team.project.com'.format(get_logname()))
+
+    args = argp.parse_args()
+
+    if not args.resultonly and not (args.myinfo and args.event):
+        print("Preparation of a transaction for my_dict requires both a myinfo JSON file (--myinfo) and an event "
+              "ID (--event).", file = sys.stderr)
+        sys.exit(1)
+
+    # Load the my_var_data_items data. Reference format is at
+    
+    my_var_data_items = {}
+
+    #Calling function with _data dictionary and required items to be parsed. Finally we will get the parsed  json (my_var_data_items), this is
+    #being used in the subsequent functions.
+    _parser(my_var_data_items)
+
+    if args.resultonly:
+        json.dump(my_var_data_items, args.output, indent = 2, sort_keys = True)
+        args.output.write("\n")  # Add the trailing newline that some programs and people want to see
+
+        print("Wrote '{}' containing just the stream my_var_data_items JSON.".format(args.output), file = sys.stderr)
+
+    else:
+        # Read the myinfo JSON file
+        myinfo_data = json.load(args.myinfo)
+
+        # Dump (to args.output) the dict that my_var_data_itemss from mashing the dicts together.
+        json.dump(construct_my_dict_json(myinfo_data, my_var_data_items, args.name, args.event, args.time,
+                                         args.submitter_name, args.submitter_email),
+                  args.output,
+                  indent = 2,
+                  sort_keys = True)
+        args.output.write("\n")  # Add the trailing newline that some programs and people want to see
+
+        print("Wrote '{}' containing the full my_dict JSON output for '{}'.".format(args.output, args.event),
+              file = sys.stderr)
+
+
+def get_logname(uid = getuid()):
+    try:
+        return getpwuid(uid)[0]
+    except KeyError:
+        return str(uid)
+
+
+def construct_my_dict_json(myinfo_dict, my_var_data_items, test_name, event_id, start_time, submitter_name,
+                           submitter_email):
+    my_dict_dict = {
+        'test_dimensions':      myinfo_dict.get('test_dimensions', {}),
+        'my_dimensions':       myinfo_dict.get('my_dimensions', {}),
+        'system_configuration': myinfo_dict.get('system_configuration', {}),
+    }
+    my_dict_dict['test_dimensions'].update({
+        'test_name':            test_name,
+        'iteration_name':       event_id,
+        'iteration_start_date': start_time,
+        'submitter_name':       submitter_name,
+        'submitter_email':      submitter_email,
+    })
+    my_dict_dict.update(my_var_data_items)
+
+    my_dict_dict = { d.replace(' ','_') : e  
+                 for d, e in my_dict_dict.items()}
+
+    return my_dict_dict
+
+
+def _parser():
+  #my_var_data_items = {}
+  for input_file in args.input_file:
+        client_input_file=input_file.split('=')[1]
+        print(client_input_file)
+        #client_input_file=input_file.split('=')[1].split(',')[0]
+        #server_input_file=input_file.split('=')[1].split(',')[1]
+
+        #Extracting my_var client values
+
+        #Extractin value for interval_in_sec
+        cmd = "cat "+client_input_file+" | grep 'GBytes'|cut -d ' ' -f4 |cut -d '-' -f2 |awk '{ sum += $1; n++} END { print sum }'"
+        stream = os.popen(cmd)
+        interval_in_sec = stream.read()
+        interval_in_sec=interval_in_sec.strip()
+        #print(interval_in_sec)
+        if (interval_in_sec is not None):
+                my_var_data_items['interval_in_sec'] = float(interval_in_sec)
+                #print(my_var_data_items)
+
+
+        #Extractin value for x_Gbps
+        cmd = "cat "+client_input_file+" | grep 'GBytes'|awk '{sum += $7; n++} END { print sum }'"
+        stream = os.popen(cmd)
+        TotalBW_Gbps = stream.read()
+        TotalBW_Gbps=TotalBW_Gbps.strip()
+        #print(TotalBW_Gbps)
+        if (TotalBW_Gbps is not None):
+                my_var_data_items['TotalBW_Gbps'] = float(TotalBW_Gbps)
+
+        #Extractin value for y_in_GB
+        cmd = "cat "+client_input_file+" | grep 'GBytes'|awk '{sum += $5; n++} END { print sum }'"
+        stream = os.popen(cmd)
+        transfer_in_GB = stream.read()
+        transfer_in_GB=transfer_in_GB.strip()
+        #print(transfer_in_GB)
+        if (transfer_in_GB is not None):
+                my_var_data_items['transfer_in_GB'] = float(transfer_in_GB)
+
+        #Extractin value for rtry
+        cmd = "cat "+client_input_file+" | grep 'GBytes'|awk '{sum += $10; n++} END { print sum }'"
+        stream = os.popen(cmd)
+        rtry = stream.read()
+        rtry=rtry.strip()
+        #print(rtry)
+        if (rtry is not None):
+                my_var_data_items['rtry'] = int(rtry)
+
+        #Extractin value for RTT
+        cmd = "cat "+client_input_file+" | grep 'GBytes' |cut -d '/' -f4 | cut -d ' ' -f1 | awk '{sum += $1; n++} END { print sum }'"
+        stream = os.popen(cmd)
+        RTT = stream.read()
+        RTT=RTT.strip()
+        #print(RTT)
+        if (RTT is not None):
+                my_var_data_items['RTT'] = int(RTT)
+
+        #Extractin value for TCP_window_size_in_KB
+        cmd = "cat "+client_input_file+"| grep 'TCP window size' | awk '{ print $4 }'"
+        stream = os.popen(cmd)
+        TCP_window_size_in_KB = stream.read()
+        TCP_window_size_in_KB=TCP_window_size_in_KB.split('\n')[0].strip()
+        #print(TCP_window_size_in_KB)
+        if (TCP_window_size_in_KB is not None):
+              my_var_data_items['TCP_window_size_in_KB'] = int(TCP_window_size_in_KB)
+
+
+        #Extractin value for TotalRX_Gbps
+        cmd = "cat "+client_input_file+" | grep 'GBytes'|awk '{sum += $7; n++} END { print sum }'"
+        stream = os.popen(cmd)
+        TotalRX_Gbps = stream.read()
+        TotalRX_Gbps= TotalRX_Gbps.strip()
+        #print(TotalRX_Gbps)
+        if (TotalRX_Gbps is not None):
+                my_var_data_items['TotalRX_Gbps'] = float(TotalRX_Gbps)
+
+        #Extractin value for TotalTX_Gbps
+        #cmd = "cat "+server_input_file+" | grep 'GBytes'|awk '{sum += $7; n++} END { print sum }'"
+        #stream = os.popen(cmd)
+        #TotalTX_Gbps = stream.read()
+        TotalTX_Gbps=args.TotalTX_Gbps
+        #print(TotalTX_Gbps)
+        if (TotalTX_Gbps is not None):
+                my_var_data_items['TotalTX_Gbps'] = float(TotalTX_Gbps)
+
+        my_var_version=args.my_var_version
+        if (my_var_version is not None):
+                my_var_data_items['my_var_version'] = (my_var_version)
+        
+        #Extracting if config values
+
+        # extract mtu
+        cmd="ifconfig | grep mtu | grep e | cut -d ' ' -f5"
+        stream=os.popen(cmd)
+        mtu=stream.read()
+        mtu=mtu.split('\n')[0]
+        #print(mtu)
+        if (mtu is not None):
+                my_var_data_items['mtu'] = int(mtu)
+
+        # extract txqueuelen
+        cmd="ifconfig | grep txqueuelen | grep Ethernet | cut -d ':' -f6 | cut -d ' ' -f4"
+        stream=os.popen(cmd)
+        txqueuelen=stream.read()
+        txqueuelen=txqueuelen.split('\n')[0]
+        #print(txqueuelen)
+        if (txqueuelen is not None):
+                my_var_data_items['txqueuelen'] = int(txqueuelen)
+
+
+
+        my_var_data_items['type']= ["unidir"]
+
+
+        print(my_var_data_items)
+
+if __name__ == "__main__":
+    main()
+
+#!/usr/bin/env python3
+import argparse
+import json
+import sys
+from datetime import datetime
+from getpass import getuser
+
+
+def main():
+    argp = argparse.ArgumentParser()
+    argp.add_argument('--output', '-o', type = argparse.FileType('w'), default = '-')
+    argp.add_argument('--input', type = str, default = '-', nargs = '*')
+    argp.add_argument('--myinfo', type = argparse.FileType('r'))
+    argp.add_argument('--event', '--event-id', '--id', type = str)
+    argp.add_argument('--name', type = str, default = 'dgemm_unknown')
+    argp.add_argument('--time', type = str, default = datetime.utcnow().isoformat())
+    argp.add_argument('--resultonly', action = 'store_true')
+    argp.add_argument('--submitter-name', type = str, default = get_logname())
+    argp.add_argument('--submitter-email', type = str, default = '{}@team.project.com'.format(get_logname()))
+    args=argp.parse_args()
+
+    my_var_parser()
+
+
+    if args.resultonly:
+       json.dumps(my_vardict, args.output, indent = 2, sort_keys = True)
+       print(my_vardict)
+
+    else:
+        # Read the myinfo JSON file
+        myinfo_data = json.load(args.myinfo)
+
+        # Dump (to args.output) the dict that results from mashing the dicts together.
+        json.dump(construct_my_dict_json(myinfo_data, my_vardict, args.name, args.event, args.time,
+                                         args.submitter_name, args.submitter_email),
+                  args.output,
+                  indent = 2,
+                  sort_keys = True)
+        args.output.write("\n")  # Add the trailing newline that some programs and people want to see
+
+        print("Wrote '{}' containing the full my_dict JSON output for '{}'.".format(args.output, args.event),
+              file = sys.stderr)
+
+#Methods are defined here
+def get_logname():
+    user = getuser()
+    if user == 'root' or user == 'Administrator':
+        user = 'UNKNOWN'
+    return user
+
+
+def my_var_parser(): #Read the json file
+for fn in args.input:
+  if (fn == '-'):
+    fn = '/dev/stdin'
+with open(fn, 'r') as f: #f = open("/home/project/my_var_0912_2052_randread_nvme0n1_NJ20", "r")
+x = json.load(f)
+f.close()
+    
+
+    #List the fields to be extracted into output parser json
+        y = ('my_var version','rw', 'direct', 'iodepth', 'bs', 'ioengine', 'filename', 'ramp_time', 'runtime', 'numjobs', 'bw', 'iops', 'usr_cpu', 'sys_cpu')
+
+        my_vardict = dict.fromkeys(y)
+        for i in my_vardict:
+            if i in x :
+                v = x[i]
+            elif i in x['global options'] :
+                v = x['global options'][i]
+            elif i in x['jobs'][0]['job options'] :
+                v = x['jobs'][0]['job options'][i]
+            elif i in x['jobs'][0]['read'] :
+                v = x['jobs'][0]['read'][i]
+            elif i in x['jobs'][0] :
+                v = x['jobs'][0][i]
+            my_vardict.update({i: v})
+
+        #Below means are of duplicate, so capturing the values explictly and adding to my_var json
+        v = x['jobs'][0]['read']['slat_ns']['mean']
+        my_vardict["slat_ns_mean"] = v
+
+        v = x['jobs'][0]['read']['clat_ns']['mean']
+        my_vardict["clat_ns_mean"] = v
+
+    return my_vardict
+
+
+def construct_my_dict_json(myinfo_dict, my_vardict, test_name, event_id, start_time, submitter_name,
+                           submitter_email):
+    my_dict_dict = {
+        'test_dimensions':      myinfo_dict.get('test_dimensions', {}),
+        'my_dimensions':       myinfo_dict.get('my_dimensions', {}),
+        'system_configuration': myinfo_dict.get('system_configuration', {}),
+    }
+    my_dict_dict['test_dimensions'].update({
+        'test_name':            test_name,
+        'iteration_name':       event_id,
+        'iteration_start_date': start_time,
+        'submitter_name':       submitter_name,
+        'submitter_email':      submitter_email,
+    })
+    my_dict_dict.update(my_vardict)
+
+    return my_dict_dict
+
+
+if _name_ == "_main_":
+    main()
+
+
